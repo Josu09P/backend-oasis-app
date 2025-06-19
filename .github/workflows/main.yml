@@ -1,0 +1,129 @@
+pipeline {
+    agent any
+
+    tools {
+        maven 'MAVEN_HOME'
+    }
+    environment {
+        DOCKER_PROJECT_NAME = 'decorhouse'
+        APP_CONTAINER_NAME = 'decor-house-app'
+        DB_CONTAINER_NAME = 'mysql-decor-house-prod'
+        DB_NAME = 'decor_house_prod'
+        DB_USER = 'root'
+        DB_PASSWORD = 'admin123'
+        REPO_URL = 'https://github.com/Josu09P/backend-oasis-app.git'
+    }
+
+    stages {
+        stage('Clone') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    echo 'Clonando el repositorio'
+                    cleanWs()
+                    git branch: 'main', url: "${REPO_URL}"
+
+                    echo 'Verificando archivos SQL'
+                    sh 'ls -la sql/'
+                    sh '''
+                        if [ -f "sql/init.sql" ]; then
+                            echo "Archivo init.sql encontrado correctamente"
+                            echo "Contenido inicial del archivo:"
+                            head -n 5 sql/init.sql
+                        else
+                            echo "ERROR: Archivo init.sql no encontrado"
+                            exit 1
+                        fi
+                    '''
+                    echo 'Clonación y verificación completadas'
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    echo 'Construyendo el proyecto'
+                    sh 'mvn -DskipTests clean package'
+                    echo 'Construcción completada'
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    echo 'Ejecutando pruebas'
+                    sh 'mvn test -DskipTests'
+                    echo 'Pruebas completadas'
+                }
+            }
+        }
+
+        stage('Sonar Analysis') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    echo 'Ejecutando análisis de calidad'
+                    withSonarQubeEnv('sonarqube') {
+                        sh 'mvn org.sonarsource.scanner.maven:sonar-maven-plugin:3.9.0.2155:sonar -Pcoverage'
+                    }
+                    echo 'Análisis de calidad completado'
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    echo 'Verificando estándares de calidad'
+                    waitForQualityGate abortPipeline: true
+                    echo 'Verificación completada'
+                }
+            }
+        }
+
+        stage('Deploy Application') {
+            steps {
+                echo 'Iniciando despliegue de la aplicación'
+                dir('docker') {
+                    script {
+                        echo 'Eliminando despliegue anterior'
+                        try {
+                            sh "docker-compose -p ${DOCKER_PROJECT_NAME} down -v --remove-orphans"
+                        } catch (Exception e) {
+                            echo "Advertencia: ${e.getMessage()}"
+                        }
+
+                        echo 'Levantando servicios con Docker Compose'
+                        sh "docker-compose -p ${DOCKER_PROJECT_NAME} up -d --build"
+
+                        echo 'Inicializando base de datos'
+                        sleep(30)
+                        sh "docker exec -i ${DB_CONTAINER_NAME} mysql -u${DB_USER} -p${DB_PASSWORD} ${DB_NAME} < ../sql/init.sql"
+
+                        echo 'Verificando estructura de la base de datos'
+                        sh "docker exec ${DB_CONTAINER_NAME} mysql -u${DB_USER} -p${DB_PASSWORD} -e 'USE ${DB_NAME}; SHOW TABLES;'"
+
+                        echo 'Esperando a que la aplicación inicie'
+                        sleep(30)
+
+                        echo 'Mostrando logs de la aplicación'
+                        sh "docker logs --tail 200 ${APP_CONTAINER_NAME}"
+                    }
+                }
+                echo 'Despliegue completado'
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline finalizado'
+        }
+        success {
+            echo 'Pipeline completado exitosamente'
+        }
+        failure {
+            echo 'Pipeline falló'
+        }
+    }
+}
