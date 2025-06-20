@@ -6,6 +6,10 @@ spring:
     name: decor-house
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://db:3306/decor_house_prod?serverTimezone=America/Lima&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: admin123
+
   jpa:
     database-platform: org.hibernate.dialect.MySQLDialect
     hibernate:
