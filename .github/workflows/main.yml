@@ -1,70 +1,61 @@
-# 🚀 Pipeline de CI/CD para despliegue local con un Self-Hosted Runner
-
-name: Deploy Locally with Self-Hosted Runner
+name: CI/CD Decor House 🏠
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 env:
-  DOCKER_PROJECT_NAME: 'decorhouse'
+  DOCKER_PROJECT_NAME: 'decor-house'
   APP_CONTAINER_NAME: 'decor-house-app'
   DB_CONTAINER_NAME: 'mysql-decor-house-prod'
   DB_NAME: 'decor_house_prod'
   DB_USER: 'root'
   DB_PASSWORD: 'admin123'
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SONAR_HOST_URL: 'http://localhost:9000'  # O cambia al URL de tu instancia
 
 jobs:
-  build-and-deploy:
-    name: Build and Deploy Locally
+  build-test-sonar-docker:
     runs-on: self-hosted
 
     steps:
-      # 1. Clonar el repositorio
-      - name: Checkout repository
+      - name: 🔄 Checkout del repositorio
         uses: actions/checkout@v4
 
-      # 2. Configurar Java y Maven
-      - name: Set up JDK 17
+      - name: ☕ Configurar JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
 
-      # 3. Compilar el proyecto y generar .jar + Jacoco
-      - name: Build with Maven
-        run: mvn -B clean package -DskipTests
+      - name: 📦 Build y Tests con Maven
+        run: mvn -B clean verify
 
-      # 4. Análisis SonarQube usando Maven (reemplazo correcto del paso anterior)
-      - name: SonarQube Analysis with Maven
-        run: mvn verify sonar:sonar -Dsonar.projectKey=decor-house -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+      - name: 🔍 Análisis con SonarQube
+        run: mvn sonar:sonar -Dsonar.projectKey=decor-house \
+                             -Dsonar.host.url=${{ env.SONAR_HOST_URL }} \
+                             -Dsonar.login=${{ env.SONAR_TOKEN }}
 
-      # 5. Desplegar usando Docker Compose
-      - name: Deploy with Docker Compose
+      - name: 🐳 Despliegue con Docker Compose
         run: |
-          echo "✅ Iniciando despliegue..."
+          echo "🧼 Limpiando contenedores anteriores..."
           cd docker
 
-          echo "🧹 Limpiando anterior despliegue..."
-          docker compose -p ${{ env.DOCKER_PROJECT_NAME }} down -v --remove-orphans || true
+          docker compose -p $DOCKER_PROJECT_NAME down -v --remove-orphans || echo "Nada que bajar"
 
-          echo "🏗️ Build y up de contenedores..."
-          docker compose -p ${{ env.DOCKER_PROJECT_NAME }} up -d --build
+          echo "🏗️ Construyendo e iniciando servicios..."
+          docker compose -p $DOCKER_PROJECT_NAME up -d --build
 
-          echo "⏳ Esperando DB..."
+          echo "⏳ Esperando a que la base de datos se estabilice..."
           sleep 30
 
-          echo "💾 Ejecutando script SQL..."
-          docker exec -i ${{ env.DB_CONTAINER_NAME }} mysql -u${{ env.DB_USER }} -p${{ env.DB_PASSWORD }} ${{ env.DB_NAME }} < ../sql/init.sql
+          echo "💾 Ejecutando script SQL de inicialización..."
+          cat ../sql/init.sql | docker exec -i $DB_CONTAINER_NAME mysql -u$DB_USER -p$DB_PASSWORD $DB_NAME
 
-          echo "🔍 Estado contenedores:"
-          docker compose -p ${{ env.DOCKER_PROJECT_NAME }} ps
+          echo "🔍 Estado de los contenedores:"
+          docker compose -p $DOCKER_PROJECT_NAME ps
 
-          echo "📄 Logs de la app:"
-          docker logs --tail 100 ${{ env.APP_CONTAINER_NAME }}
-
-      # 6. Confirmación final
-      - name: ✅ Pipeline Completado
-        run: echo "🎉 Despliegue exitoso."
+          echo "📄 Últimos logs de la app:"
+          docker logs --tail 100 $APP_CONTAINER_NAME
