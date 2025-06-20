@@ -17,6 +17,7 @@ env:
 
 jobs:
   build-test-sonar-docker:
+    name: Build, Test, Sonar y Docker
     runs-on: self-hosted
 
     steps:
@@ -30,37 +31,41 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: 🐳 Desplegar base de datos MySQL
+      - name: 📦 Compilar el proyecto (sin tests)
+        run: mvn clean package -DskipTests
+
+      - name: 🔍 Análisis estático con SonarQube
         run: |
+          mvn sonar:sonar \
+            -Dsonar.projectKey=decor-house \
+            -Dsonar.host.url=${{ env.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ env.SONAR_TOKEN }}
+
+      - name: 🐳 Despliegue con Docker Compose
+        run: |
+          echo "🧹 Limpiando contenedores anteriores..."
           cd docker
-          echo "🧼 Limpiando base de datos previa..."
+
+          # Usamos docker compose moderno (sin guion)
           docker compose -p $DOCKER_PROJECT_NAME down -v --remove-orphans || echo "Nada que bajar"
 
-          echo "🏗️ Levantando solo la DB..."
-          docker compose -p $DOCKER_PROJECT_NAME up -d db
-
-          echo "⏳ Esperando a que MySQL esté listo..."
-          sleep 30
-
-          echo "💾 Ejecutando script SQL..."
-          cat ../sql/init.sql | docker exec -i $DB_CONTAINER_NAME mysql -u$DB_USER -p$DB_PASSWORD $DB_NAME
-
-      - name: 📦 Build y Tests con Maven
-        run: mvn -B clean verify
-
-      - name: 🔍 Análisis con SonarQube
-        run: mvn sonar:sonar -Dsonar.projectKey=decor-house \
-                             -Dsonar.host.url=${{ env.SONAR_HOST_URL }} \
-                             -Dsonar.login=${{ env.SONAR_TOKEN }}
-
-      - name: 🐳 Desplegar app (servicio completo)
-        run: |
-          echo "🧼 Deteniendo todo nuevamente para redeploy..."
-          cd docker
-          docker compose -p $DOCKER_PROJECT_NAME down -v --remove-orphans
-
-          echo "🚀 Levantando servicios completos..."
+          echo "🏗️ Construyendo imágenes e iniciando servicios..."
           docker compose -p $DOCKER_PROJECT_NAME up -d --build
 
-          echo "📄 Logs de la app:"
+          echo "⏳ Esperando que la base de datos esté lista..."
+          sleep 30
+
+          echo "💾 Ejecutando script SQL de inicialización..."
+          cat ../sql/init.sql | docker exec -i $DB_CONTAINER_NAME mysql -u$DB_USER -p$DB_PASSWORD $DB_NAME
+
+          echo "🔍 Estado actual de los contenedores:"
+          docker compose -p $DOCKER_PROJECT_NAME ps
+
+          echo "📄 Logs recientes de la app:"
           docker logs --tail 100 $APP_CONTAINER_NAME
+
+      - name: ✅ Validar estado del backend
+        run: |
+          echo "🔎 Verificando salud de la aplicación en http://localhost:8084/actuator/health"
+          sleep 10
+          curl --fail http://localhost:8084/actuator/health || (echo "❌ Backend no está saludable" && exit 1)
