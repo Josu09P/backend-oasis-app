@@ -34,6 +34,18 @@ jobs:
       - name: 📦 Compilar el proyecto (sin tests)
         run: mvn clean package -DskipTests
 
+      - name: ⏳ Esperar a que SonarQube esté disponible
+        run: |
+          echo "⏳ Esperando que SonarQube esté listo..."
+          for i in {1..10}; do
+            if curl -sSf ${{ env.SONAR_HOST_URL }}/api/system/health > /dev/null; then
+              echo "✅ SonarQube está disponible"
+              break
+            fi
+            echo "🔁 Intento $i: SonarQube aún no responde, esperando 5 segundos..."
+            sleep 5
+          done
+
       - name: 🔍 Análisis estático con SonarQube
         run: |
           mvn sonar:sonar \
@@ -46,7 +58,6 @@ jobs:
           echo "🧹 Limpiando contenedores anteriores..."
           cd docker
 
-          # Usamos docker compose moderno (sin guion)
           docker compose -p $DOCKER_PROJECT_NAME down -v --remove-orphans || echo "Nada que bajar"
 
           echo "🏗️ Construyendo imágenes e iniciando servicios..."
