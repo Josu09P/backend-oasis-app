@@ -13,7 +13,7 @@ env:
   DB_USER: 'root'
   DB_PASSWORD: 'admin123'
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-  SONAR_HOST_URL: 'http://localhost:9000'  # O cambia al URL de tu instancia
+  SONAR_HOST_URL: 'http://localhost:9000'
 
 jobs:
   build-test-sonar-docker:
@@ -30,6 +30,21 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: 🐳 Desplegar base de datos MySQL
+        run: |
+          cd docker
+          echo "🧼 Limpiando base de datos previa..."
+          docker compose -p $DOCKER_PROJECT_NAME down -v --remove-orphans || echo "Nada que bajar"
+
+          echo "🏗️ Levantando solo la DB..."
+          docker compose -p $DOCKER_PROJECT_NAME up -d db
+
+          echo "⏳ Esperando a que MySQL esté listo..."
+          sleep 30
+
+          echo "💾 Ejecutando script SQL..."
+          cat ../sql/init.sql | docker exec -i $DB_CONTAINER_NAME mysql -u$DB_USER -p$DB_PASSWORD $DB_NAME
+
       - name: 📦 Build y Tests con Maven
         run: mvn -B clean verify
 
@@ -38,24 +53,14 @@ jobs:
                              -Dsonar.host.url=${{ env.SONAR_HOST_URL }} \
                              -Dsonar.login=${{ env.SONAR_TOKEN }}
 
-      - name: 🐳 Despliegue con Docker Compose
+      - name: 🐳 Desplegar app (servicio completo)
         run: |
-          echo "🧼 Limpiando contenedores anteriores..."
+          echo "🧼 Deteniendo todo nuevamente para redeploy..."
           cd docker
+          docker compose -p $DOCKER_PROJECT_NAME down -v --remove-orphans
 
-          docker compose -p $DOCKER_PROJECT_NAME down -v --remove-orphans || echo "Nada que bajar"
-
-          echo "🏗️ Construyendo e iniciando servicios..."
+          echo "🚀 Levantando servicios completos..."
           docker compose -p $DOCKER_PROJECT_NAME up -d --build
 
-          echo "⏳ Esperando a que la base de datos se estabilice..."
-          sleep 30
-
-          echo "💾 Ejecutando script SQL de inicialización..."
-          cat ../sql/init.sql | docker exec -i $DB_CONTAINER_NAME mysql -u$DB_USER -p$DB_PASSWORD $DB_NAME
-
-          echo "🔍 Estado de los contenedores:"
-          docker compose -p $DOCKER_PROJECT_NAME ps
-
-          echo "📄 Últimos logs de la app:"
+          echo "📄 Logs de la app:"
           docker logs --tail 100 $APP_CONTAINER_NAME
