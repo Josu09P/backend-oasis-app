@@ -9,7 +9,7 @@ on:
     branches: [ "main" ]
   workflow_dispatch: # Permite ejecutar el pipeline manualmente
 
-# Variables de entorno que serán usadas por docker-compose
+# Variables de entorno que serán usadas por docker compose
 env:
   DOCKER_PROJECT_NAME: 'decorhouse'
   APP_CONTAINER_NAME: 'decor-house-app'
@@ -40,17 +40,17 @@ jobs:
       - name: Build with Maven
         run: mvn -B clean package -DskipTests
 
-      # 4. Despliegue con Docker Compose
+      # 4. Despliegue con Docker Compose (v2 syntax sin guion)
       - name: Deploy with Docker Compose
         run: |
           echo "✅ Iniciando despliegue en el runner local..."
           cd docker
 
           echo "🧹 Limpiando despliegue anterior (si existe)..."
-          docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} down -v --remove-orphans || echo "⚠️ No se encontró un despliegue anterior para limpiar."
+          docker compose -p ${{ env.DOCKER_PROJECT_NAME }} down -v --remove-orphans || echo "⚠️ No se encontró un despliegue anterior para limpiar."
 
           echo "🏗️ Construyendo y levantando los servicios..."
-          docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} up -d --build
+          docker compose -p ${{ env.DOCKER_PROJECT_NAME }} up -d --build
 
           echo "⏳ Esperando 30 segundos para que la DB se estabilice..."
           sleep 30
@@ -58,7 +58,7 @@ jobs:
           echo "🎉 ✓ Despliegue local completado exitosamente."
 
           echo "🔍 Verificando estado de los contenedores..."
-          docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} ps
+          docker compose -p ${{ env.DOCKER_PROJECT_NAME }} ps
 
           echo "🗒️ Mostrando los últimos logs de la aplicación:"
           docker logs --tail 100 ${{ env.APP_CONTAINER_NAME }}
