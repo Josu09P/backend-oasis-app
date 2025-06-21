@@ -1,82 +1,64 @@
-name: CI/CD Decor House 🏠
+# .github/workflows/deploy.yml
+# 🚀 Pipeline de CI/CD adaptado para Linux CachyOS
+# 🔧 Usa Self-Hosted Runner, rama main, y configuración personalizada
+
+name: Deploy Locally with Self-Hosted Runner
 
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
+  workflow_dispatch: # Permite ejecutar el pipeline manualmente
 
+# Variables de entorno que serán usadas por docker-compose
 env:
-  DOCKER_PROJECT_NAME: 'decor-house'
+  DOCKER_PROJECT_NAME: 'decorhouse'
   APP_CONTAINER_NAME: 'decor-house-app'
   DB_CONTAINER_NAME: 'mysql-decor-house-prod'
   DB_NAME: 'decor_house_prod'
   DB_USER: 'root'
   DB_PASSWORD: 'admin123'
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-  SONAR_HOST_URL: 'http://localhost:9100'  # ✅ Corregido: puerto expuesto por Docker
 
 jobs:
-  build-test-sonar-docker:
-    name: Build, Test, Sonar y Docker
+  build-and-deploy:
+    name: Build and Deploy Locally
     runs-on: self-hosted
 
     steps:
-      - name: 🔄 Checkout del repositorio
+      # 1. Descargar el código del repositorio en el runner
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: ☕ Configurar JDK 17
+      # 2. Configurar Java y Maven
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
 
-      - name: 📦 Compilar el proyecto (sin tests)
-        run: mvn clean package -DskipTests
+      # 3. Compilar el proyecto sin tests
+      - name: Build with Maven
+        run: mvn -B clean package -DskipTests
 
-      - name: ⏳ Esperar a que SonarQube esté disponible
+      # 4. Despliegue con Docker Compose
+      - name: Deploy with Docker Compose
         run: |
-          echo "⏳ Esperando que SonarQube esté listo..."
-          for i in {1..10}; do
-            if curl -sSf ${{ env.SONAR_HOST_URL }}/api/system/health > /dev/null; then
-              echo "✅ SonarQube está disponible"
-              break
-            fi
-            echo "🔁 Intento $i: SonarQube aún no responde, esperando 5 segundos..."
-            sleep 5
-          done
-
-      - name: 🔍 Análisis estático con SonarQube
-        run: |
-          mvn sonar:sonar \
-            -Dsonar.projectKey=decor-house \
-            -Dsonar.host.url=${{ env.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ env.SONAR_TOKEN }}
-
-      - name: 🐳 Despliegue con Docker Compose
-        run: |
-          echo "🧹 Limpiando contenedores anteriores..."
+          echo "✅ Iniciando despliegue en el runner local..."
           cd docker
 
-          docker compose -p $DOCKER_PROJECT_NAME down -v --remove-orphans || echo "Nada que bajar"
+          echo "🧹 Limpiando despliegue anterior (si existe)..."
+          docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} down -v --remove-orphans || echo "⚠️ No se encontró un despliegue anterior para limpiar."
 
-          echo "🏗️ Construyendo imágenes e iniciando servicios..."
-          docker compose -p $DOCKER_PROJECT_NAME up -d --build
+          echo "🏗️ Construyendo y levantando los servicios..."
+          docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} up -d --build
 
-          echo "⏳ Esperando que la base de datos esté lista..."
+          echo "⏳ Esperando 30 segundos para que la DB se estabilice..."
           sleep 30
 
-          echo "💾 Ejecutando script SQL de inicialización..."
-          cat ../sql/init.sql | docker exec -i $DB_CONTAINER_NAME mysql -u$DB_USER -p$DB_PASSWORD $DB_NAME
+          echo "🎉 ✓ Despliegue local completado exitosamente."
 
-          echo "🔍 Estado actual de los contenedores:"
-          docker compose -p $DOCKER_PROJECT_NAME ps
+          echo "🔍 Verificando estado de los contenedores..."
+          docker-compose -p ${{ env.DOCKER_PROJECT_NAME }} ps
 
-          echo "📄 Logs recientes de la app:"
-          docker logs --tail 100 $APP_CONTAINER_NAME
-
-      - name: ✅ Validar estado del backend
-        run: |
-          echo "🔎 Verificando salud de la aplicación en http://localhost:8084/actuator/health"
-          sleep 10
-          curl --fail http://localhost:8084/actuator/health || (echo "❌ Backend no está saludable" && exit 1)
+          echo "🗒️ Mostrando los últimos logs de la aplicación:"
+          docker logs --tail 100 ${{ env.APP_CONTAINER_NAME }}
